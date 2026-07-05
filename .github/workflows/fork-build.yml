@@ -1,0 +1,59 @@
+name: Fork Build (GHCR)
+
+# Builds the Docker image for THIS fork and pushes it to GitHub Container
+# Registry (ghcr.io/<owner>/9router). Coolify then pulls the prebuilt image and
+# you click "Redeploy" — no building on the VPS.
+#
+# Triggers:
+#   - push to the custom branch (every time you rebase/update + push)
+#   - manual run from the Actions tab (workflow_dispatch)
+
+on:
+  push:
+    branches:
+      - custom/kiro-microsoft-sso
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
