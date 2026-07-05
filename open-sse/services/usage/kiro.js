@@ -72,6 +72,43 @@ export async function getKiroUsage(accessToken, providerSpecificData, proxyOptio
     resourceType: "AGENTIC_REQUEST",
   });
 
+  // Enterprise external IdP (Microsoft Entra) accounts hit Kiro's own management
+  // gateway with a GET + profileArn query and the EXTERNAL_IDP token type — the
+  // *.amazonaws.com CodeWhisperer/Q hosts 403 their IdP-issued token. Matches
+  // managementBase()/GetUsageLimits in the Kiro-Go reference fork.
+  if (isExternalIdp) {
+    const mgmtParams = new URLSearchParams(getUsageParams);
+    if (profileArn) mgmtParams.set("profileArn", profileArn);
+    try {
+      const response = await proxyAwareFetch(
+        `https://management.us-east-1.kiro.dev${U("kiro").limitsPath}?${mgmtParams.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Accept": "application/json",
+            "x-amz-user-agent": "aws-sdk-js/1.0.0 KiroIDE",
+            "user-agent": "aws-sdk-js/1.0.0 KiroIDE",
+            ...externalIdpHeaders,
+          },
+        },
+        proxyOptions
+      );
+      if (response.ok) {
+        return parseKiroQuotaData(await response.json());
+      }
+      return {
+        message: "Kiro quota API rejected the current Microsoft 365 token. Chat may still work.",
+        quotas: {},
+      };
+    } catch (error) {
+      return {
+        message: `Unable to fetch Kiro usage right now. (${error.message})`,
+        quotas: {},
+      };
+    }
+  }
+
   // For compatibility, try multiple known Kiro usage endpoints
   const attempts = [
     {

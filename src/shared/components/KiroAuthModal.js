@@ -224,6 +224,22 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               </div>
             </button>
 
+            {/* Microsoft 365 (Entra ID) */}
+            <button
+              onClick={() => onMethodSelect("microsoft")}
+              className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined text-primary mt-0.5">window</span>
+                <div className="flex-1">
+                  <h3 className="font-semibold mb-1">Microsoft 365 (Entra ID)</h3>
+                  <p className="text-sm text-text-muted">
+                    Sign in with your Microsoft 365 / Azure AD account via Kiro hosted SSO.
+                  </p>
+                </div>
+              </div>
+            </button>
+
             {/* AWS API Key */}
             <button
               onClick={() => handleMethodSelect("api-key")}

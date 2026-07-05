@@ -50,15 +50,25 @@ function extractEmailFromAccessToken(accessToken) {
   return payload.email || payload.preferred_username || payload.sub || undefined;
 }
 
-export async function fetchKiroProfileArn(accessToken) {
+// Enterprise external IdP (Microsoft Entra) accounts must resolve their profile
+// against Kiro's own management gateway with the EXTERNAL_IDP token type — their
+// IdP-issued token is NOT accepted by codewhisperer.amazonaws.com (403). All
+// other auth methods (builder-id / social / idc / api-key) use the CodeWhisperer
+// REST host. Mirrors managementBase() in the Kiro-Go reference fork.
+export async function fetchKiroProfileArn(accessToken, authMethod = null) {
   if (!accessToken) return null;
+  const isExternalIdp = authMethod === "external_idp";
+  const endpoint = isExternalIdp
+    ? "https://management.us-east-1.kiro.dev/ListAvailableProfiles"
+    : "https://codewhisperer.us-east-1.amazonaws.com/ListAvailableProfiles";
   try {
-    const response = await fetch("https://codewhisperer.us-east-1.amazonaws.com/ListAvailableProfiles", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
         Authorization: `Bearer ${accessToken}`,
+        ...(isExternalIdp ? { TokenType: "EXTERNAL_IDP" } : {}),
       },
       body: JSON.stringify({ maxResults: 10 }),
     });

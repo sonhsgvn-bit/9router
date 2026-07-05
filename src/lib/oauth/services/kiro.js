@@ -266,7 +266,33 @@ export class KiroService {
    * Accepts both `arn` and `profileArn` response field names (the API-key
    * JSON-1.0 surface returns `arn`).
    */
-  async listAvailableProfiles(accessToken, region = "us-east-1") {
+  async listAvailableProfiles(accessToken, region = "us-east-1", authMethod = null) {
+    // Enterprise external IdP (Microsoft Entra) tokens are only accepted by
+    // Kiro's own management gateway with the EXTERNAL_IDP token type — the
+    // codewhisperer.amazonaws.com surface 403s them. This gateway speaks plain
+    // JSON (no x-amz-json target), matching managementBase() in the Kiro-Go fork.
+    if (authMethod === "external_idp") {
+      const gwResponse = await fetch("https://management.us-east-1.kiro.dev/ListAvailableProfiles", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+          "TokenType": "EXTERNAL_IDP",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({ maxResults: 10 }),
+      });
+      if (!gwResponse.ok) {
+        const error = await gwResponse.text();
+        throw new Error(`Failed to list profiles: ${error}`);
+      }
+      const gwData = await gwResponse.json();
+      const gwProfiles = Array.isArray(gwData?.profiles) ? gwData.profiles : [];
+      const gwArnOf = (p) => p?.arn || p?.profileArn || null;
+      const gwMatch = gwProfiles.find((p) => gwArnOf(p)?.split(":")[3] === region) || gwProfiles[0];
+      return gwArnOf(gwMatch);
+    }
+
     assertValidAwsRegion(region);
     const endpoint = `https://codewhisperer.${region}.amazonaws.com`;
 

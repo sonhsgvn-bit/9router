@@ -4,6 +4,19 @@ const MICROSOFT_TOKEN_ENDPOINT_HOSTS = new Set([
   "login.windows.net",
 ]);
 
+// Suffixes accepted for the OIDC discovery / authorize / token endpoints during
+// the hosted-SSO enterprise leg. Broader than the exact token-host set above
+// because Entra's discovery document legitimately points authorize/token at
+// tenant-region siblings under *.microsoftonline.com. The leading dot anchors
+// each suffix to a subdomain boundary so "evil-microsoftonline.com" cannot match.
+const MICROSOFT_ENDPOINT_HOST_SUFFIXES = [
+  ".microsoftonline.com",
+  ".microsoftonline.us",
+  ".microsoftonline.cn",
+  ".microsoft.com",
+  ".windows.net",
+];
+
 const DEFAULT_REGION = "us-east-1";
 const DEFAULT_EXPIRES_IN = 3600;
 
@@ -30,6 +43,46 @@ export function validateMicrosoftTokenEndpoint(rawEndpoint) {
   if (!MICROSOFT_TOKEN_ENDPOINT_HOSTS.has(host)) {
     throw new Error("token_endpoint must be a Microsoft login endpoint");
   }
+
+  return parsed.toString();
+}
+
+// isIpLiteral returns true for a bare IPv4/IPv6 host. Named hosts only (an IP
+// literal can never match the allow-list, and rejecting it early blocks SSRF
+// via a forged issuer/endpoint pointing at an internal address).
+function isIpLiteral(host) {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true; // IPv4
+  if (host.includes(":")) return true; // IPv6 (URL hostname keeps brackets stripped)
+  return false;
+}
+
+// validateMicrosoftEndpoint gates any Microsoft Entra endpoint reached during
+// the hosted-SSO enterprise leg: the issuer (before discovery) and both
+// discovered endpoints (authorize URL the browser is 302'd to, token endpoint
+// the code is exchanged at). Enforces https + named, allow-listed host.
+export function validateMicrosoftEndpoint(rawUrl) {
+  const value = normalizeString(rawUrl);
+  if (!value) throw new Error("Microsoft endpoint URL is required");
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Microsoft endpoint must be a valid URL");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Microsoft endpoint must use https");
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host) throw new Error("Microsoft endpoint has no host");
+  if (isIpLiteral(host)) throw new Error("Microsoft endpoint must not be an IP literal");
+
+  const ok = MICROSOFT_ENDPOINT_HOST_SUFFIXES.some(
+    (suffix) => host === suffix.slice(1) || host.endsWith(suffix)
+  );
+  if (!ok) throw new Error(`Microsoft endpoint host "${host}" is not allow-listed`);
 
   return parsed.toString();
 }
