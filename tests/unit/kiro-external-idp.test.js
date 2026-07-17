@@ -92,7 +92,7 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("adds CodeWhisperer external IdP headers and endpoint ordering", async () => {
+  it("routes external_idp through the Kiro gateway with the EXTERNAL_IDP header", async () => {
     const { KiroExecutor } = await import("../../open-sse/executors/kiro.js");
     const executor = new KiroExecutor();
     const credentials = {
@@ -105,9 +105,16 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
     expect(headers.TokenType).toBe("EXTERNAL_IDP");
     expect(headers.tokentype).toBeUndefined();
 
+    // Entra-issued tokens are ONLY accepted by Kiro's own gateway; the
+    // *.amazonaws.com hosts 403 them (BaseExecutor treats 403 as terminal), so
+    // external_idp must route exclusively to runtime.*.kiro.dev — matching the
+    // Kiro-Go reference fork's endpointsForAccount.
     expect(executor.buildUrl("claude-sonnet-4.5", true, 0, credentials)).toBe(
-      "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse"
+      "https://runtime.us-east-1.kiro.dev/generateAssistantResponse"
     );
+    const ordered = executor.getOrderedBaseUrls(credentials);
+    expect(ordered.every((u) => u.includes("kiro.dev"))).toBe(true);
+    expect(ordered.some((u) => u.includes("amazonaws.com"))).toBe(false);
   });
 
   it("sends TokenType for external_idp Kiro usage probes", async () => {
@@ -133,6 +140,9 @@ describe("Kiro external_idp (CLIProxyAPI) import and refresh", () => {
 
     expect(result.plan).toBe("Kiro Enterprise");
     expect(calls).toHaveLength(1);
+    // Usage must hit the Kiro management gateway — not codewhisperer/q.amazonaws.com,
+    // which 403 the Entra token.
+    expect(calls[0].url).toContain("management.us-east-1.kiro.dev");
     expect(calls[0].init.headers.Authorization).toBe("Bearer microsoft-access-token");
     expect(calls[0].init.headers.TokenType).toBe("EXTERNAL_IDP");
     expect(calls[0].init.headers.tokentype).toBeUndefined();

@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import OAuthModal from "./OAuthModal";
 import KiroAuthModal from "./KiroAuthModal";
 import KiroSocialOAuthModal from "./KiroSocialOAuthModal";
+import KiroMicrosoftOAuthModal from "./KiroMicrosoftOAuthModal";
 
 /**
  * Kiro OAuth Wrapper
@@ -27,6 +28,9 @@ export default function KiroOAuthWrapper({ isOpen, providerInfo, onSuccess, onCl
       // Use social login with manual callback
       setAuthMethod("social");
       setSocialProvider(config.provider);
+    } else if (method === "microsoft") {
+      // Use Kiro hosted SSO browser flow (Microsoft 365 / Entra ID)
+      setAuthMethod("microsoft");
     } else if (method === "import" || method === "api-key") {
       // Import / API-key handled in KiroAuthModal, just close
       onSuccess?.();
@@ -84,6 +88,17 @@ export default function KiroOAuthWrapper({ isOpen, providerInfo, onSuccess, onCl
       <KiroSocialOAuthModal
         isOpen={isOpen}
         provider={socialProvider}
+        onSuccess={handleSocialSuccess}
+        onClose={handleBack}
+      />
+    );
+  }
+
+  // Show Microsoft 365 (Entra ID) hosted SSO browser flow
+  if (authMethod === "microsoft") {
+    return (
+      <KiroMicrosoftOAuthModal
+        isOpen={isOpen}
         onSuccess={handleSocialSuccess}
         onClose={handleBack}
       />

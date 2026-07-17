@@ -19,15 +19,9 @@
  * "format of value 'os/win/10 lang/js ...' is invalid").
  */
 
-import { v4 as uuidv4 } from "uuid";
 import { createHash } from "crypto";
 import { refreshKiroToken } from "./tokenRefresh.js";
-
-const KIRO_RUNTIME_SDK_VERSION = "1.0.0";
-const KIRO_AGENT_OS = "windows";
-const KIRO_AGENT_OS_VERSION = "10.0.26200";
-const KIRO_NODE_VERSION = "22.21.1";
-const KIRO_VERSION = "0.10.32";
+import { buildKiroFingerprintHeaders } from "../config/kiroFingerprint.js";
 
 const DEFAULT_REGION = "us-east-1";
 const FETCH_TIMEOUT_MS = 30_000;
@@ -60,36 +54,12 @@ function regionFromProfileArn(profileArn) {
 }
 
 /**
- * Build the per-account fingerprint headers Kiro upstream validates.
- * Keyed off whatever stable identifier we have for this credential, so the
- * same account always presents the same machineId.
+ * Build the per-account runtime fingerprint headers Kiro upstream validates.
+ * Delegates to the shared helper (runtime mode) so the chat executor and this
+ * catalog fetch present the same per-account Kiro IDE identity.
  */
-function buildKiroFingerprintHeaders(credentials) {
-  const seed =
-    credentials?.providerSpecificData?.clientId
-    || credentials?.refreshToken
-    || credentials?.providerSpecificData?.profileArn
-    || credentials?.accessToken
-    || "kiro-anonymous";
-  const machineId = createHash("sha256").update(String(seed)).digest("hex");
-
-  const userAgent =
-    `aws-sdk-js/${KIRO_RUNTIME_SDK_VERSION} ua/2.1 ` +
-    `os/${KIRO_AGENT_OS}#${KIRO_AGENT_OS_VERSION} ` +
-    `lang/js md/nodejs#${KIRO_NODE_VERSION} ` +
-    `api/codewhispererruntime#${KIRO_RUNTIME_SDK_VERSION} m/N,E ` +
-    `KiroIDE-${KIRO_VERSION}-${machineId}`;
-  const amzUserAgent = `aws-sdk-js/${KIRO_RUNTIME_SDK_VERSION} KiroIDE-${KIRO_VERSION}-${machineId}`;
-
-  return {
-    "User-Agent": userAgent,
-    "x-amz-user-agent": amzUserAgent,
-    "x-amzn-kiro-agent-mode": "vibe",
-    "x-amzn-codewhisperer-optout": "true",
-    "amz-sdk-request": "attempt=1; max=1",
-    "amz-sdk-invocation-id": uuidv4(),
-    "Accept": "application/json"
-  };
+function buildKiroCatalogHeaders(credentials) {
+  return buildKiroFingerprintHeaders(credentials, "runtime");
 }
 
 /**
@@ -159,14 +129,21 @@ function formatDisplayName(modelName, modelId, rateMultiplier) {
 async function fetchKiroCatalogRaw(credentials, signal) {
   const profileArn = credentials?.providerSpecificData?.profileArn || "";
   const region = regionFromProfileArn(profileArn);
+  const isExternalIdp = credentials?.providerSpecificData?.authMethod === "external_idp";
   const params = new URLSearchParams();
   params.set("origin", "AI_EDITOR");
   if (profileArn) params.set("profileArn", profileArn);
-  const url = `https://q.${region}.amazonaws.com/ListAvailableModels?${params.toString()}`;
+  // External IdP (Microsoft Entra) tokens are only accepted by Kiro's own
+  // management gateway; the q.amazonaws.com host 403s them. Others use the
+  // regional Q host as before.
+  const url = isExternalIdp
+    ? `https://management.us-east-1.kiro.dev/ListAvailableModels?${params.toString()}`
+    : `https://q.${region}.amazonaws.com/ListAvailableModels?${params.toString()}`;
 
   const headers = {
-    ...buildKiroFingerprintHeaders(credentials),
-    "Authorization": `Bearer ${credentials?.accessToken || ""}`
+    ...buildKiroCatalogHeaders(credentials),
+    "Authorization": `Bearer ${credentials?.accessToken || ""}`,
+    ...(isExternalIdp ? { TokenType: "EXTERNAL_IDP" } : {})
   };
 
   const controller = new AbortController();
