@@ -29,10 +29,10 @@ export default {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/vnd.amazon.eventstream",
+      "X-Amz-Target": "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
       // User-Agent / x-amz-user-agent are supplied per-request by
       // buildKiroFingerprintHeaders (a real Kiro IDE fingerprint with a stable
-      // per-account machineId) instead of a static generic UA. X-Amz-Target is
-      // also selected per endpoint by KiroExecutor.buildHeaders.
+      // per-account machineId) instead of a static generic UA.
     },
     tokenUrl: "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken",
     authUrl: "https://prod.us-east-1.auth.desktop.kiro.dev",

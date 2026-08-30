@@ -9,8 +9,8 @@ import { v4 as uuidv4 } from "uuid";
 import { refreshKiroToken } from "../services/tokenRefresh.js";
 import { SSE_DONE, SSE_HEADERS } from "../utils/sseConstants.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
-import { buildKiroFingerprintHeaders } from "../config/kiroFingerprint.js";
 import { STREAM_FIRST_CHUNK_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { buildKiroFingerprintHeaders } from "../config/kiroFingerprint.js";
 
 const KIRO_REPAIR_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
 const KIRO_REPAIR_HEARTBEAT_MS = 10_000;
@@ -228,13 +228,7 @@ export class KiroExecutor extends BaseExecutor {
   }
 
   buildHeaders(credentials, stream = true, url = "") {
-    // Present a per-account Kiro IDE fingerprint (stable machineId + real
-    // codewhispererstreaming User-Agent) instead of a generic static UA. The
-    // Kiro-Go reference fork does the same; a generic "AWS-SDK-JS/3.0.0" UA is a
-    // tell that the traffic is not the real IDE and raises ban risk. The static
-    // config.headers still supply Content-Type / X-Amz-Target; the fingerprint
-    // overrides User-Agent / x-amz-user-agent, and Accept is forced back to the
-    // eventstream type the streaming response needs.
+    // Fork: per-account Kiro IDE fingerprint (stable machineId + real codewhispererstreaming UA)
     const fingerprint = buildKiroFingerprintHeaders(credentials, "streaming");
     const headers = {
       ...this.config.headers,
@@ -291,22 +285,16 @@ export class KiroExecutor extends BaseExecutor {
   getOrderedBaseUrls(credentials) {
     const baseUrls = this.getBaseUrls();
     const authMethod = credentials?.providerSpecificData?.authMethod;
-
-    // Enterprise external IdP (Microsoft Entra / Okta) tokens are IdP-issued and
+    // Fork: Enterprise external IdP (Microsoft Entra / Okta) tokens are IdP-issued and
     // are ONLY accepted by Kiro's own gateway (runtime.*.kiro.dev). The
-    // *.amazonaws.com CodeWhisperer/Q hosts reject them with 403 "bearer token
-    // invalid", and BaseExecutor treats 403 as terminal (no fallthrough), so if
-    // an amazonaws host is tried first the whole request 403s. Mirror the Kiro-Go
-    // reference fork: route external_idp exclusively through the kiro.dev gateway.
+    // *.amazonaws.com hosts reject them with 403 and BaseExecutor treats 403 as terminal.
+    // Mirror the Kiro-Go fork: route external_idp exclusively through kiro.dev.
     if (authMethod === "external_idp") {
       const kiroDev = baseUrls.filter((u) => u.includes("kiro.dev"));
       return kiroDev.length > 0 ? kiroDev : baseUrls;
     }
-
-    // IAM Identity Center (idc) and api-key tokens are AWS SSO / CodeWhisperer
-    // credentials. The kiro.dev gateway rejects them with 403 "bearer token
-    // invalid", so they must hit the CodeWhisperer *.amazonaws.com surface first,
-    // in the region the token was minted in (the baseUrls are hardcoded us-east-1).
+    // IAM Identity Center (idc) / api_key are CodeWhisperer credentials -
+    // must hit the *.amazonaws.com surface, regionalized.
     const isCodeWhispererSurface = authMethod === "api_key" || authMethod === "idc";
     if (!isCodeWhispererSurface) return baseUrls;
 
